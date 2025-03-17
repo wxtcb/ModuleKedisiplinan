@@ -1,0 +1,13 @@
+{
+    "name": "Kedisiplinan",
+    "alias": "kedisiplinan",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Kedisiplinan\\Providers\\KedisiplinanServiceProvider"
+    ],
+    "aliases": {},
+    "files": [],
+    "requires": []
+}
