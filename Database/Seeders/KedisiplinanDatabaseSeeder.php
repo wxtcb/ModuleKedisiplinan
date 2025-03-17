@@ -16,6 +16,6 @@ class KedisiplinanDatabaseSeeder extends Seeder
     {
         Model::unguard();
 
-        // $this->call("OthersTableSeeder");
+        $this->call(MenuModulKedisiplinanTableSeeder::class);
     }
 }
