@@ -11,6 +11,14 @@
 |
 */
 
+use Illuminate\Support\Facades\Route;
+
 Route::prefix('kedisiplinan')->group(function() {
-    Route::get('/', 'KedisiplinanController@index');
+    Route::prefix('alpha')->group(function() {
+        Route::get('/', 'AlphaController@index'); 
+    });
+
+    Route::prefix('disiplin')->group(function() {
+        Route::get('/', 'DisiplinController@index'); 
+    });
 });
