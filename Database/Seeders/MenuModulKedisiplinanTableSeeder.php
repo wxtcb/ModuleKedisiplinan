@@ -47,7 +47,7 @@ class MenuModulKedisiplinanTableSeeder extends Seeder
                 'url' => 'kedisiplinan/disiplin',
                 'can' => serialize(['admin']),
                 'icon' => 'far fa-circle',
-                'urut' => 1,
+                'urut' => 2,
                 'parent_id' => $menu->id,
                 'active' => serialize(['kedisiplinan/disiplin', 'kedisiplinan/disiplin*']),
             ]);
