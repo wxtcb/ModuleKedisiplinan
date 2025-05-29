@@ -9,10 +9,8 @@ class Alpha extends Model
 {
     use HasFactory;
 
+    protected $connection = 'second_db';
+    protected $table = 'presensi';
+    protected $primaryKey = 'id';
     protected $fillable = [];
-    
-    protected static function newFactory()
-    {
-        return \Modules\Kedisiplinan\Database\factories\AlphaFactory::new();
-    }
 }
