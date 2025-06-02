@@ -24,6 +24,7 @@
                                 <th rowspan="2">Nama</th>
                                 <th colspan="12">Bulan</th>
                                 <th rowspan="2">Ketidakhadiran <br>(Satu Tahun)</th>
+                                <th rowspan="2">Jumlah <br>Sanksi</th>
                             </tr>
                             <tr>
                                 @foreach (['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'] as $bulan)
@@ -46,11 +47,14 @@
                                             @endif
                                         </td>
                                     @endforeach
-                                    <td>
+                                    <td><a href="{{route('alpha.show', ['id' => $data['id']])}}">
                                         {{ collect($data['tm_per_bulan'])->filter(function ($value, $key) {
                                             return $key <= date('n') && is_numeric($value);
                                         })->sum() }} Hari
+                                    </a>
+                                        
                                     </td>
+                                    <td class="text-center">-</td>
                                 </tr>
                             @empty
                                 <tr>
