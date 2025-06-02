@@ -7,8 +7,10 @@ use Carbon\Carbon;
 use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Maatwebsite\Excel\Facades\Excel;
 use Modules\Cuti\Entities\Cuti;
 use Modules\Kedisiplinan\Entities\Alpha;
+use Modules\Kedisiplinan\Exports\PegawaiAlphaExport;
 use Modules\Pengaturan\Entities\Pegawai;
 use Modules\Setting\Entities\Jam;
 use Modules\Setting\Entities\Libur;
@@ -24,7 +26,7 @@ class AlphaController extends Controller
      */
     public function index(Request $request)
     {
-        
+
         $user = auth()->user();
         $year = $request->input('year', now()->year);
         $bulanSekarang = now()->month;
@@ -131,101 +133,35 @@ class AlphaController extends Controller
                 }
 
                 // Lewati jika tanggal termasuk dalam dinas luar atau cuti
-                if (in_array($tanggal, $dinasLuarByPegawai[$pegawai->id] ?? []) ||
-                    in_array($tanggal, $cutiByPegawai[$pegawai->id] ?? [])) {
+                if (
+                    in_array($tanggal, $dinasLuarByPegawai[$pegawai->id] ?? []) ||
+                    in_array($tanggal, $cutiByPegawai[$pegawai->id] ?? [])
+                ) {
                     continue;
                 }
 
                 $key = $pegawai->id . '|' . $tanggal;
 
-                if ($kehadiran->has($key)) {
-                    $absenHariItu = $kehadiran->get($key);
-                    $datang = $absenHariItu->where('checktype', 'I')->sortBy('checktime')->first();
-                    $pulang = $absenHariItu->where('checktype', 'O')->sortByDesc('checktime')->first();
-
-                    $hasI = $datang !== null;
-                    $hasO = $pulang !== null;
-
-                    $izinMasukDisetujui = Terlambat::where('pegawai_id', $pegawai->id)
+                // Cek tidak ada kehadiran sama sekali
+                if (!$kehadiran->has($key)) {
+                    // Tidak masuk dan tidak ada surat izin
+                    $izinAda = Terlambat::where('pegawai_id', $pegawai->id)
                         ->where('status', 'Disetujui')
                         ->whereDate('tanggal', $tanggal)
-                        ->where('jenis_ijin', 'Terlambat')
-                        ->exists() ||
-                        LupaAbsen::where('pegawai_id', $pegawai->id)
+                        ->exists()
+                        || LupaAbsen::where('pegawai_id', $pegawai->id)
                         ->where('status', 'Disetujui')
                         ->whereDate('tanggal', $tanggal)
-                        ->where('jenis_ijin', 'Lupa Absen Masuk')
                         ->exists();
 
-                    $izinPulangDisetujui = Terlambat::where('pegawai_id', $pegawai->id)
-                        ->where('status', 'Disetujui')
-                        ->whereDate('tanggal', $tanggal)
-                        ->where('jenis_ijin', 'Pulang Cepat')
-                        ->exists() ||
-                        LupaAbsen::where('pegawai_id', $pegawai->id)
-                        ->where('status', 'Disetujui')
-                        ->whereDate('tanggal', $tanggal)
-                        ->where('jenis_ijin', 'Lupa Absen Pulang')
-                        ->exists();
-
-                    $userPegawai = User::where('username', $pegawai->username)->first();
-                    $pegawaiRoles = $userPegawai?->getRoleNames()?->toArray() ?? [];
-                    $jenis = in_array('dosen', $pegawaiRoles) ? 'dosen' : 'pegawai';
-                    $minimalJam = ($jenis === 'dosen') ? 4 : 8;
-
-                    $jamKerjaCustom = Jam::where('jenis', $jenis)
-                        ->whereDate('tanggal_mulai', '<=', $tanggal)
-                        ->whereDate('tanggal_selesai', '>=', $tanggal)
-                        ->first();
-
-                    if ($jamKerjaCustom && !empty($jamKerjaCustom->jam_kerja)) {
-                        $jamKerjaStr = strtolower(trim($jamKerjaCustom->jam_kerja));
-                        $jamKerjaStr = preg_replace('/\s+/', ' ', $jamKerjaStr);
-                        if (preg_match('/(\d+)\s*jam\s*(\d+)\s*menit/', $jamKerjaStr, $matches)) {
-                            $minimalJam = (int)$matches[1] + ((int)$matches[2] / 60);
-                        }
+                    if (!$izinAda) {
+                        $tmPerBulan[$bulan]++;
                     }
-
-                    if ($hasI && $hasO) {
-                        $jamKerjaJam = strtotime($pulang->checktime) - strtotime($datang->checktime);
-                        $jamKerjaJam /= 3600;
-
-                        if ($jamKerjaJam >= $minimalJam || $izinMasukDisetujui || $izinPulangDisetujui) {
-                            continue; // Dianggap hadir, tidak dihitung sebagai TM
-                        } else {
-                            $tmPerBulan[$bulan]++;
-                        }
-                    } elseif ($hasI || $hasO) {
-                        if (($hasI && $izinPulangDisetujui) || ($hasO && $izinMasukDisetujui)) {
-                            continue; // Dianggap hadir, tidak dihitung sebagai TM
-                        } else {
-                            $tmPerBulan[$bulan]++;
-                        }
-                    } else {
-                        $izinLupaMasuk = LupaAbsen::where('pegawai_id', $pegawai->id)
-                            ->where('status', 'Disetujui')
-                            ->whereDate('tanggal', $tanggal)
-                            ->where('jenis_ijin', 'Lupa Absen Masuk')
-                            ->exists();
-
-                        $izinLupaPulang = LupaAbsen::where('pegawai_id', $pegawai->id)
-                            ->where('status', 'Disetujui')
-                            ->whereDate('tanggal', $tanggal)
-                            ->where('jenis_ijin', 'Lupa Absen Pulang')
-                            ->exists();
-
-                        if ($izinLupaMasuk && $izinLupaPulang) {
-                            continue; // Dianggap hadir, tidak dihitung sebagai TM
-                        } else {
-                            $tmPerBulan[$bulan]++;
-                        }
-                    }
-                } else {
-                    $tmPerBulan[$bulan]++;
                 }
             }
 
             return [
+                'id' => $pegawai->id,
                 'nip' => $pegawai->nip,
                 'nama' => $pegawai->nama,
                 'tm_per_bulan' => $tmPerBulan
@@ -233,7 +169,6 @@ class AlphaController extends Controller
         })->toArray();
 
         return view('kedisiplinan::alpha.index', compact('rekapData', 'year'));
-
     }
 
     /**
@@ -260,9 +195,136 @@ class AlphaController extends Controller
      * @param int $id
      * @return Renderable
      */
+
     public function show($id)
     {
-        return view('kedisiplinan::show');
+        $pegawai = Pegawai::findOrFail($id);
+        $year = request('year', now()->year); // Ambil tahun dari request
+
+        // Ambil libur nasional
+        $tanggalLibur = Libur::whereYear('tanggal', $year)->pluck('tanggal')
+            ->map(fn($d) => Carbon::parse($d)->format('Y-m-d'))->toArray();
+
+        // Hitung hari kerja efektif
+        $start = Carbon::createFromDate($year, 1, 1);
+        $end = Carbon::createFromDate($year, 12, 31);
+        $hariKerja = collect([]);
+
+        while ($start->lte($end)) {
+            $tanggal = $start->format('Y-m-d');
+            if (!$start->isWeekend() && !in_array($tanggal, $tanggalLibur)) {
+                $hariKerja->push($tanggal);
+            }
+            $start->addDay();
+        }
+
+        // Ambil absensi sesuai tahun
+        $absensi = Alpha::whereYear('checktime', $year)
+            ->where('user_id', $pegawai->id)
+            ->get()
+            ->map(fn($a) => Carbon::parse($a->checktime)->format('Y-m-d'));
+
+        // Ambil cuti sesuai tahun
+        $cuti = Cuti::where('pegawai_id', $pegawai->id)
+            ->whereYear('tanggal_mulai', '<=', $year)
+            ->whereYear('tanggal_selesai', '>=', $year)
+            ->get();
+
+        $tanggalCuti = collect([]);
+        foreach ($cuti as $item) {
+            $start = Carbon::parse($item->tanggal_mulai);
+            $end = Carbon::parse($item->tanggal_selesai);
+            while ($start->lte($end)) {
+                $tanggal = $start->format('Y-m-d');
+                if ($start->year == $year) {
+                    $tanggalCuti->push($tanggal);
+                }
+                $start->addDay();
+            }
+        }
+
+        // Ambil lupa absen sesuai tahun
+        $lupaAbsen = LupaAbsen::where('pegawai_id', $pegawai->id)
+            ->whereYear('tanggal', $year)
+            ->where('status', 'Disetujui')
+            ->pluck('tanggal');
+
+        // Ambil terlambat sesuai tahun
+        $terlambat = Terlambat::where('pegawai_id', $pegawai->id)
+            ->whereYear('tanggal', $year)
+            ->where('status', 'Disetujui')
+            ->pluck('tanggal');
+
+        // Ambil surat tugas / dinas luar sesuai tahun
+        $suratTugas = SuratTugas::whereHas('anggota', function ($q) use ($pegawai) {
+            $q->where('pegawai_id', $pegawai->id);
+        })
+            ->orWhereHas('detail', function ($q) use ($pegawai) {
+                $q->where('pegawai_id', $pegawai->id);
+            })
+            ->whereHas('detail', function ($q) use ($year) {
+                $q->whereYear('tanggal_mulai', '<=', $year)
+                    ->whereYear('tanggal_selesai', '>=', $year);
+            })
+            ->with(['detail'])
+            ->get();
+
+        // Ambil tanggal dinas sesuai tahun
+        $tanggalDinas = collect([]);
+        foreach ($suratTugas as $st) {
+            if (!$st->detail) continue;
+
+            $start = Carbon::parse($st->detail->tanggal_mulai);
+            $end = Carbon::parse($st->detail->tanggal_selesai);
+            $current = clone $start;
+
+            while ($current->lte($end)) {
+                if ($current->year == $year) {
+                    $tanggal = $current->format('Y-m-d');
+                    $tanggalDinas->push($tanggal);
+                }
+                $current->addDay();
+            }
+        }
+
+        // Gabung semua tanggal izin
+        $tanggalIzin = $tanggalCuti
+            ->merge($lupaAbsen)
+            ->merge($terlambat)
+            ->merge($tanggalDinas)
+            ->unique()
+            ->map(fn($d) => Carbon::parse($d)->format('Y-m-d'))
+            ->toArray();
+
+        // Cari alpha (hari kerja tanpa absen/izin & ≤ hari ini)
+        $tanggalHariIni = now()->format('Y-m-d');
+        $tahunSekarang = now()->year;
+
+        $alphaDates = $hariKerja->filter(function ($tanggal) use ($absensi, $tanggalIzin, $year, $tahunSekarang, $tanggalHariIni) {
+            $tanggalParse = Carbon::parse($tanggal);
+            $bulan = $tanggalParse->month;
+            $tahunAlpha = $tanggalParse->year;
+
+            // Jika tahun yang dipilih == tahun sekarang, maka batasi sampai hari ini
+            if ($year == $tahunSekarang) {
+                $bulanSekarang = now()->month;
+                $tanggalAlphaStr = $tanggalParse->format('Y-m-d');
+
+                if ($bulan > $bulanSekarang || ($bulan == $bulanSekarang && $tanggalAlphaStr > $tanggalHariIni)) {
+                    return false;
+                }
+            }
+
+            // Cek apakah pegawai hadir atau izin
+            return !$absensi->contains($tanggal) && !in_array($tanggal, $tanggalIzin);
+        });
+
+        // Kelompokkan per bulan
+        $alphaPerBulan = $alphaDates->groupBy(function ($tanggal) {
+            return Carbon::parse($tanggal)->locale('id')->translatedFormat('F Y'); // "Januari 2025"
+        });
+
+        return view('kedisiplinan::alpha.show', compact('pegawai', 'alphaPerBulan', 'year'));
     }
 
     /**
@@ -294,5 +356,129 @@ class AlphaController extends Controller
     public function destroy($id)
     {
         //
+    }
+
+    public function exportExcel($id)
+    {
+        $year = request('year'); // Ambil dari query string
+        $pegawai = Pegawai::findOrFail($id);
+
+        // Gunakan kembali logic show() untuk ambil $alphaPerBulan
+        [$alphaPerBulan] = $this->getAlphaData($pegawai, $year);
+
+        $fileName = "Alpha_Pegawai_{$pegawai->nip}_{$pegawai->nama}_{$year}.xlsx";
+
+        return Excel::download(new PegawaiAlphaExport($pegawai, $alphaPerBulan, $year), $fileName);
+    }
+
+    private function getAlphaData($pegawai, $year)
+    {
+        $tanggalLibur = Libur::whereYear('tanggal', $year)->pluck('tanggal')
+            ->map(fn($d) => Carbon::parse($d)->format('Y-m-d'))->toArray();
+
+        $start = Carbon::createFromDate($year, 1, 1);
+        $end = Carbon::createFromDate($year, 12, 31);
+        $hariKerja = collect();
+
+        while ($start->lte($end)) {
+            $tanggal = $start->format('Y-m-d');
+            if (!$start->isWeekend() && !in_array($tanggal, $tanggalLibur)) {
+                $hariKerja->push($tanggal);
+            }
+            $start->addDay();
+        }
+
+        $absensi = Alpha::whereYear('checktime', $year)
+            ->where('user_id', $pegawai->id)
+            ->get()
+            ->map(fn($a) => Carbon::parse($a->checktime)->format('Y-m-d'));
+
+        $cuti = Cuti::where('pegawai_id', $pegawai->id)
+            ->whereYear('tanggal_mulai', '<=', $year)
+            ->whereYear('tanggal_selesai', '>=', $year)
+            ->get();
+
+        $tanggalCuti = collect();
+        foreach ($cuti as $item) {
+            $start = Carbon::parse($item->tanggal_mulai);
+            $end = Carbon::parse($item->tanggal_selesai);
+            while ($start->lte($end)) {
+                if ($start->year == $year) {
+                    $tanggalCuti->push($start->format('Y-m-d'));
+                }
+                $start->addDay();
+            }
+        }
+
+        $lupaAbsen = LupaAbsen::where('pegawai_id', $pegawai->id)
+            ->whereYear('tanggal', $year)
+            ->where('status', 'Disetujui')
+            ->pluck('tanggal');
+
+        $terlambat = Terlambat::where('pegawai_id', $pegawai->id)
+            ->whereYear('tanggal', $year)
+            ->where('status', 'Disetujui')
+            ->pluck('tanggal');
+
+        $suratTugas = SuratTugas::whereHas('anggota', function ($q) use ($pegawai) {
+            $q->where('pegawai_id', $pegawai->id);
+        })
+            ->orWhereHas('detail', function ($q) use ($pegawai) {
+                $q->where('pegawai_id', $pegawai->id);
+            })
+            ->whereHas('detail', function ($q) use ($year) {
+                $q->whereYear('tanggal_mulai', '<=', $year)
+                    ->whereYear('tanggal_selesai', '>=', $year);
+            })
+            ->with(['detail'])
+            ->get();
+
+        $tanggalDinas = collect();
+        foreach ($suratTugas as $st) {
+            if (!$st->detail) continue;
+
+            $start = Carbon::parse($st->detail->tanggal_mulai);
+            $end = Carbon::parse($st->detail->tanggal_selesai);
+
+            while ($start->lte($end)) {
+                if ($start->year == $year) {
+                    $tanggalDinas->push($start->format('Y-m-d'));
+                }
+                $start->addDay();
+            }
+        }
+
+        $tanggalIzin = $tanggalCuti
+            ->merge($lupaAbsen)
+            ->merge($terlambat)
+            ->merge($tanggalDinas)
+            ->unique()
+            ->map(fn($d) => Carbon::parse($d)->format('Y-m-d'))
+            ->toArray();
+
+        $tanggalHariIni = now()->format('Y-m-d');
+        $tahunSekarang = now()->year;
+
+        $alphaDates = $hariKerja->filter(function ($tanggal) use ($absensi, $tanggalIzin, $year, $tahunSekarang, $tanggalHariIni) {
+            $tanggalParse = Carbon::parse($tanggal);
+            $bulan = $tanggalParse->month;
+            $tahunAlpha = $tanggalParse->year;
+
+            if ($year == $tahunSekarang) {
+                $bulanSekarang = now()->month;
+                $tanggalAlphaStr = $tanggalParse->format('Y-m-d');
+                if ($bulan > $bulanSekarang || ($bulan == $bulanSekarang && $tanggalAlphaStr > $tanggalHariIni)) {
+                    return false;
+                }
+            }
+
+            return !$absensi->contains($tanggal) && !in_array($tanggal, $tanggalIzin);
+        });
+
+        $alphaPerBulan = $alphaDates->groupBy(function ($tanggal) {
+            return Carbon::parse($tanggal)->locale('id')->translatedFormat('F Y');
+        });
+
+        return [$alphaPerBulan];
     }
 }

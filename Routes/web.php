@@ -15,7 +15,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('kedisiplinan')->group(function() {
     Route::prefix('alpha')->group(function() {
-        Route::get('/', 'AlphaController@index'); 
+        Route::get('/', 'AlphaController@index')->name('alpha.index'); 
+        Route::get('/show/{id}', 'AlphaController@show')->name('alpha.show'); 
+        Route::get('/alpha/{id}/export-excel', 'AlphaController@exportExcel')->name('alpha.export');
     });
 
     Route::prefix('disiplin')->group(function() {
