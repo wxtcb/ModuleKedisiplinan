@@ -54,7 +54,10 @@
                                     </a>
                                         
                                     </td>
-                                    <td class="text-center">-</td>
+                                    <td class="text-center"><a href="{{route('alpha.sanksi', ['id' => $data['id']])}}">
+                                        {{$data['jumlah_sanksi']}}
+                                    </a>
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>

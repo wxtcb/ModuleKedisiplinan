@@ -10,6 +10,7 @@ use Illuminate\Routing\Controller;
 use Maatwebsite\Excel\Facades\Excel;
 use Modules\Cuti\Entities\Cuti;
 use Modules\Kedisiplinan\Entities\Alpha;
+use Modules\Kedisiplinan\Entities\Sanksi;
 use Modules\Kedisiplinan\Exports\PegawaiAlphaExport;
 use Modules\Pengaturan\Entities\Pegawai;
 use Modules\Setting\Entities\Jam;
@@ -160,11 +161,13 @@ class AlphaController extends Controller
                 }
             }
 
+            $jumlahSanksi = Sanksi::where('pegawai_id', $pegawai->id)->count();
             return [
                 'id' => $pegawai->id,
                 'nip' => $pegawai->nip,
                 'nama' => $pegawai->nama,
-                'tm_per_bulan' => $tmPerBulan
+                'tm_per_bulan' => $tmPerBulan,
+                'jumlah_sanksi' => $jumlahSanksi,
             ];
         })->toArray();
 
@@ -175,9 +178,10 @@ class AlphaController extends Controller
      * Show the form for creating a new resource.
      * @return Renderable
      */
-    public function create()
+    public function create($id)
     {
-        return view('kedisiplinan::create');
+        $pegawai = Pegawai::findOrFail($id);
+        return view('kedisiplinan::alpha.create', compact('pegawai'));
     }
 
     /**
@@ -187,7 +191,177 @@ class AlphaController extends Controller
      */
     public function store(Request $request)
     {
-        //
+        $request->validate([
+            'pegawai_id' => 'required|integer|exists:pegawais,id',
+            'pelanggaran' => 'required|string',
+            'sanksi' => 'required|string',
+            'rekomendasi_sanksi' => 'required|string',
+            'alasan' => 'required|string',
+            'rentang_sanksi' => 'required',
+            'tanggal_pemeriksaan' => 'required|date',
+            'BAP' => 'required|file|mimes:pdf,doc,docx|max:2048',
+        ]);
+
+        // explode tanggal sanksi
+        $tanggal = $request->input('rentang_sanksi');
+        $tanggalRange = explode(' to ', $tanggal);
+        if (count($tanggalRange) == 2) {
+            $awal_sanksi = $tanggalRange[0];
+            $akhir_sanksi = $tanggalRange[1];
+        }
+
+        // proses simpan dokumen
+        if ($request->hasFile('BAP')) {
+            $file = $request->file('BAP');
+            $fileName = time() . '_' . $file->getClientOriginalName();
+            $file->storeAs('public/uploads/BAP', $fileName);
+            $BAPpath = 'uploads/BAP/' . $fileName;
+        } else {
+            $BAPpath = null;
+        }
+
+        // save
+        Sanksi::create([
+            'pegawai_id' => $request->pegawai_id,
+            'pelanggaran' => $request->pelanggaran,
+            'sanksi' => $request->sanksi,
+            'rekomendasi_sanksi' => $request->rekomendasi_sanksi,
+            'alasan' => $request->alasan,
+            'tanggal_mulai' => $awal_sanksi,
+            'tanggal_selesai' => $akhir_sanksi,
+            'tanggal_pemeriksaan' => $request->tanggal_pemeriksaan,
+            'BAP' => $BAPpath,
+        ]);
+
+        return redirect()->route('alpha.index')->with('success', 'Berhasil menyimpan sanksi');
+    }
+
+    public function hitungTidakHadir(Request $request)
+    {
+        $request->validate([
+            'pegawai_id' => 'required|integer|exists:pegawais,id',
+            'bulan_range' => 'required|string',
+        ]);
+
+        $pegawai = Pegawai::findOrFail($request->pegawai_id);
+        $user = User::where('username', $pegawai->username)->firstOrFail();
+
+        $range = explode(' to ', $request->bulan_range);
+        if (count($range) === 2) {
+            $start = \Carbon\Carbon::parse($range[0])->startOfMonth();
+            $end = \Carbon\Carbon::parse($range[1])->endOfMonth();
+        } else {
+            $start = $end = \Carbon\Carbon::parse($range[0])->startOfMonth();
+        }
+
+        $today = now()->toDateString();
+        $bulanSekarang = now()->month;
+
+        // Hari libur nasional
+        $tanggalLibur = Libur::whereBetween('tanggal', [$start, $end])
+            ->pluck('tanggal')
+            ->map(fn($d) => \Carbon\Carbon::parse($d)->format('Y-m-d'))
+            ->toArray();
+
+        // Hari kerja (senin–jumat), tanpa libur & hari ke depan
+        $hariKerja = collect();
+        $periode = clone $start;
+
+        while ($periode <= $end) {
+            $tanggal = $periode->format('Y-m-d');
+            $bulan = $periode->month;
+
+            if (
+                !$periode->isWeekend() &&
+                !in_array($tanggal, $tanggalLibur) &&
+                ($bulan < $bulanSekarang || ($bulan == $bulanSekarang && $tanggal <= $today))
+            ) {
+                $hariKerja->push($tanggal);
+            }
+
+            $periode->addDay();
+        }
+
+        // Kehadiran
+        $hadir = Alpha::where('user_id', $pegawai->id)
+            ->whereBetween('checktime', [$start, $end])
+            ->get()
+            ->pluck('checktime')
+            ->map(fn($d) => \Carbon\Carbon::parse($d)->format('Y-m-d'))
+            ->unique()
+            ->toArray();
+
+        // Izin Terlambat & LupaAbsen per tanggal
+        $izin = [];
+
+        $terlambat = Terlambat::where('pegawai_id', $pegawai->id)
+            ->where('status', 'Disetujui')
+            ->whereBetween('tanggal', [$start, $end])
+            ->pluck('tanggal')
+            ->map(fn($d) => \Carbon\Carbon::parse($d)->format('Y-m-d'))
+            ->toArray();
+
+        $lupaAbsen = LupaAbsen::where('pegawai_id', $pegawai->id)
+            ->where('status', 'Disetujui')
+            ->whereBetween('tanggal', [$start, $end])
+            ->pluck('tanggal')
+            ->map(fn($d) => \Carbon\Carbon::parse($d)->format('Y-m-d'))
+            ->toArray();
+
+        $izin = array_unique(array_merge($terlambat, $lupaAbsen));
+
+        // Cuti
+        $cuti = Cuti::where('pegawai_id', $pegawai->id)
+            ->where('status', 'Selesai')
+            ->where(function ($q) use ($start, $end) {
+                $q->whereBetween('tanggal_mulai', [$start, $end])
+                    ->orWhereBetween('tanggal_selesai', [$start, $end]);
+            })
+            ->get();
+
+        $cutiTanggal = [];
+        foreach ($cuti as $c) {
+            $mulai = \Carbon\Carbon::parse($c->tanggal_mulai);
+            $selesai = \Carbon\Carbon::parse($c->tanggal_selesai);
+            while ($mulai <= $selesai) {
+                $cutiTanggal[] = $mulai->format('Y-m-d');
+                $mulai->addDay();
+            }
+        }
+
+        // Dinas Luar (DL)
+        $suratTugas = SuratTugas::with('detail', 'anggota')
+            ->whereHas('detail', fn($q) => $q->whereBetween('tanggal_mulai', [$start, $end])
+                ->orWhereBetween('tanggal_selesai', [$start, $end]))
+            ->get();
+
+        $dl = [];
+        foreach ($suratTugas as $s) {
+            if (!$s->detail) continue;
+
+            $mulai = \Carbon\Carbon::parse($s->detail->tanggal_mulai);
+            $selesai = \Carbon\Carbon::parse($s->detail->tanggal_selesai);
+
+            while ($mulai <= $selesai) {
+                $tgl = $mulai->format('Y-m-d');
+
+                if ($s->detail->pegawai_id == $pegawai->id || $s->anggota->contains('pegawai_id', $pegawai->id)) {
+                    $dl[] = $tgl;
+                }
+
+                $mulai->addDay();
+            }
+        }
+
+        // Gabungkan semua izin
+        $izinAll = array_unique(array_merge($izin, $cutiTanggal, $dl));
+
+        // Hitung tidak hadir
+        $tidakHadir = $hariKerja->filter(function ($tgl) use ($hadir, $izinAll) {
+            return !in_array($tgl, $hadir) && !in_array($tgl, $izinAll);
+        })->count();
+
+        return response()->json(['jumlah' => $tidakHadir]);
     }
 
     /**
@@ -480,5 +654,12 @@ class AlphaController extends Controller
         });
 
         return [$alphaPerBulan];
+    }
+
+    public function sanksi($id)
+    {
+        $pegawai = Pegawai::findOrFail($id);
+        $alpha = Sanksi::where('pegawai_id', $pegawai->id)->get();
+        return view('kedisiplinan::alpha.sanksi', compact('pegawai', 'alpha'));
     }
 }
