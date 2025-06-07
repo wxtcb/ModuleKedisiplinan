@@ -51,12 +51,12 @@
                     </div>
                     <div class="mt-3">
                         <label for="rekomendasi_sanksi" class="form-label">Rekomendasi Sanksi</label>
-    <div class="input-group">
-        <input type="text" id="rekomendasi_sanksi" name="rekomendasi_sanksi" class="form-control" required>
-        <button type="button" class="btn btn-outline-secondary" id="btn-copy-sanksi">
-            Gunakan sebagai sanksi
-        </button>
-    </div>
+                    <div class="input-group">
+                        <input type="text" id="rekomendasi_sanksi" name="rekomendasi_sanksi" class="form-control" required>
+                        <button type="button" class="btn btn-outline-secondary" id="btn-copy-sanksi">
+                            Gunakan sebagai sanksi
+                        </button>
+                    </div>
                     </div>
                     <div class="mt-3 mb-3">
                         <label for="sanksi" class="form-label">Sanksi Diberikan</label>
@@ -120,8 +120,18 @@
             return 'Teguran Tertulis';
         } else if (jumlah >= 7 && jumlah <= 10) {
             return 'Pernyataan Tidak Puas Tertulis';
-        } else if (jumlah > 10) {
-            return 'Sanksi Berat / Tindak Lanjut';
+        } else if (jumlah >= 11 && jumlah <=13) {
+            return 'Potongan Tunjangan 25% Selama 6 Bulan';
+        } else if (jumlah >= 14 && jumlah <=16) {
+            return 'Potongan Tunjangan 25% Selama 9 Bulan';
+        } else if (jumlah >= 17 && jumlah <=20) {
+            return 'Potongan Tunjangan 25% Selama 12 Bulan';
+        } else if (jumlah >= 21 && jumlah <=24) {
+            return 'Penurunan Jabatan Setingkat Lebih Rendah Selama 12 Bulan';
+        } else if (jumlah >= 25 && jumlah <=27) {
+            return 'Pembebasan Jabatan Menjadi Jabatan Pelaksana Selama 12 Bulan';
+        } else if (jumlah >= 28) {
+            return 'Pemberhentian Dengan Hormat Tidak Atas Permintaan Sendiri Tanpa Alasan';
         }
         return '';
     }
