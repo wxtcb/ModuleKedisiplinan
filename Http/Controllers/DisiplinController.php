@@ -7,8 +7,10 @@ use Illuminate\Contracts\Support\Renderable;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Maatwebsite\Excel\Facades\Excel;
 use Modules\Cuti\Entities\Cuti;
 use Modules\Kedisiplinan\Entities\Alpha;
+use Modules\Kedisiplinan\Exports\DisiplinExport;
 use Modules\Pengaturan\Entities\Pegawai;
 use Modules\Setting\Entities\Libur;
 use Modules\SuratIjin\Entities\LupaAbsen;
@@ -212,6 +214,16 @@ class DisiplinController extends Controller
         $bulanSekarang = now()->month;
         $tanggalHariIni = now()->toDateString();
 
+        // Get user roles
+        $roles = DB::table('model_has_roles')
+            ->join('roles', 'model_has_roles.role_id', '=', 'roles.id')
+            ->join('users', 'model_has_roles.model_id', '=', 'users.id')
+            ->where('users.username', $pegawai->username)
+            ->pluck('roles.name')
+            ->toArray();
+
+        $isDosen = in_array('dosen', $roles);
+
         // Libur
         $tanggalLibur = Libur::whereYear('tanggal', $year)
             ->pluck('tanggal')
@@ -220,7 +232,7 @@ class DisiplinController extends Controller
 
         // Kehadiran
         $kehadiran = Alpha::whereYear('checktime', $year)
-            ->where('user_id', $pegawai->user_id)
+            ->where('user_id', $pegawai->id)
             ->get()
             ->groupBy(fn($item) => $pegawai->id . '|' . Carbon::parse($item->checktime)->format('Y-m-d'));
 
@@ -287,7 +299,28 @@ class DisiplinController extends Controller
             $tanggalHariIni
         );
 
-        return view('kedisiplinan::disiplin.show', compact('pegawai', 'tanggalKurangJam'));
+        // Calculate statistics
+        $totalKurangJam = collect($tanggalKurangJam)->sum('kurang');
+        $absensiTidakLengkap = collect($tanggalKurangJam)->where('keterangan', 'Absen tidak lengkap')->count();
+
+        $bulanCounts = [];
+        foreach ($tanggalKurangJam as $item) {
+            $bulan = Carbon::parse($item['tanggal'])->format('F');
+            $bulanCounts[$bulan] = ($bulanCounts[$bulan] ?? 0) + 1;
+        }
+        arsort($bulanCounts);
+        $bulanTerburuk = key($bulanCounts) ?? '-';
+
+        return view('kedisiplinan::disiplin.show', compact(
+            'pegawai',
+            'tanggalKurangJam',
+            'hariKerja',
+            'roles',
+            'totalKurangJam',
+            'absensiTidakLengkap',
+            'bulanTerburuk',
+            'isDosen'
+        ));
     }
 
     private function hitungTanggalJamKurang($pegawai, $kehadiran, $hariKerja, $cutiByPegawai, $dinasLuarByPegawai, $bulanSekarang, $tanggalHariIni)
@@ -382,5 +415,122 @@ class DisiplinController extends Controller
     public function destroy($id)
     {
         //
+    }
+
+    public function export($id)
+    {
+        $pegawai = Pegawai::findOrFail($id);
+
+        // Reuse the same logic from your show method to get the data
+        $year = now()->year;
+        $bulanSekarang = now()->month;
+        $tanggalHariIni = now()->toDateString();
+
+        // Get user roles
+        $roles = DB::table('model_has_roles')
+            ->join('roles', 'model_has_roles.role_id', '=', 'roles.id')
+            ->join('users', 'model_has_roles.model_id', '=', 'users.id')
+            ->where('users.username', $pegawai->username)
+            ->pluck('roles.name')
+            ->toArray();
+
+        $isDosen = in_array('dosen', $roles);
+
+        // Libur
+        $tanggalLibur = Libur::whereYear('tanggal', $year)
+            ->pluck('tanggal')
+            ->map(fn($t) => Carbon::parse($t)->format('Y-m-d'))
+            ->toArray();
+
+        // Kehadiran
+        $kehadiran = Alpha::whereYear('checktime', $year)
+            ->where('user_id', $pegawai->id)
+            ->get()
+            ->groupBy(fn($item) => $pegawai->id . '|' . Carbon::parse($item->checktime)->format('Y-m-d'));
+
+        // Cuti
+        $cuti = Cuti::where('status', 'Selesai')
+            ->where('pegawai_id', $pegawai->id)
+            ->get();
+
+        $cutiByPegawai = [];
+        foreach ($cuti as $item) {
+            $start = Carbon::parse($item->tanggal_mulai);
+            $end = Carbon::parse($item->tanggal_selesai);
+            for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
+                if ($date->year == $year) {
+                    $cutiByPegawai[$pegawai->id][] = $date->format('Y-m-d');
+                }
+            }
+        }
+
+        // Dinas Luar
+        $suratTugas = SuratTugas::with(['detail', 'anggota'])
+            ->whereHas('detail', fn($q) => $q->whereYear('tanggal_mulai', '<=', $year)->orWhereYear('tanggal_selesai', '<=', $year))
+            ->get();
+
+        $dinasLuarByPegawai = [];
+        foreach ($suratTugas as $surat) {
+            if (!$surat->detail) continue;
+            $start = Carbon::parse($surat->detail->tanggal_mulai);
+            $end = Carbon::parse($surat->detail->tanggal_selesai);
+            for ($date = $start->copy(); $date->lte($end); $date->addDay()) {
+                $tgl = $date->format('Y-m-d');
+                if ($date->year != $year) continue;
+                if ($surat->detail->pegawai_id == $pegawai->id) {
+                    $dinasLuarByPegawai[$pegawai->id][] = $tgl;
+                }
+                foreach ($surat->anggota as $anggota) {
+                    if ($anggota->pegawai_id == $pegawai->id) {
+                        $dinasLuarByPegawai[$pegawai->id][] = $tgl;
+                    }
+                }
+            }
+        }
+
+        // Hari kerja
+        $hariKerja = collect();
+        $start = Carbon::create($year, 1, 1);
+        $end = Carbon::create($year, 12, 31);
+        while ($start <= $end) {
+            $tgl = $start->format('Y-m-d');
+            if (!$start->isWeekend() && !in_array($tgl, $tanggalLibur)) {
+                $hariKerja->push($tgl);
+            }
+            $start->addDay();
+        }
+
+        // Get the data
+        $tanggalKurangJam = $this->hitungTanggalJamKurang(
+            $pegawai,
+            $kehadiran,
+            $hariKerja,
+            $cutiByPegawai,
+            $dinasLuarByPegawai,
+            $bulanSekarang,
+            $tanggalHariIni
+        );
+
+        // Calculate statistics
+        $totalKurangJam = collect($tanggalKurangJam)->sum('kurang');
+        $absensiTidakLengkap = collect($tanggalKurangJam)->where('keterangan', 'Absen tidak lengkap')->count();
+
+        $bulanCounts = [];
+        foreach ($tanggalKurangJam as $item) {
+            $bulan = Carbon::parse($item['tanggal'])->format('F');
+            $bulanCounts[$bulan] = ($bulanCounts[$bulan] ?? 0) + 1;
+        }
+        arsort($bulanCounts);
+        $bulanTerburuk = key($bulanCounts) ?? '-';
+
+        $filename = 'disiplin_' . strtolower(str_replace(' ', '_', $pegawai->nama)) . '_' . $year . '.xlsx';
+
+        return Excel::download(new DisiplinExport(
+            $pegawai,
+            $tanggalKurangJam,
+            $totalKurangJam,
+            $absensiTidakLengkap,
+            $bulanTerburuk
+        ), $filename);
     }
 }

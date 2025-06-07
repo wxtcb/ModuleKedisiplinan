@@ -27,5 +27,6 @@ Route::prefix('kedisiplinan')->group(function () {
     Route::prefix('disiplin')->group(function () {
         Route::get('/', 'DisiplinController@index')->name('disiplin.index');
         Route::get('/show/{id}', 'DisiplinController@show')->name('disiplin.show');
+        Route::get('/export/{id}', 'DisiplinController@export')->name('disiplin.export');
     });
 });
