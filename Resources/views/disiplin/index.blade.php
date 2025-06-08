@@ -55,7 +55,7 @@
                                     </a>
                                         
                                     </td>
-                                    <td class="text-center"><a href="#">
+                                    <td class="text-center"><a href="{{route('disiplin.sanksi', ['id' => $data['id']])}}">
                                         -
                                     </a>
                                     </td>

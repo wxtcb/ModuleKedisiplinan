@@ -28,5 +28,7 @@ Route::prefix('kedisiplinan')->group(function () {
         Route::get('/', 'DisiplinController@index')->name('disiplin.index');
         Route::get('/show/{id}', 'DisiplinController@show')->name('disiplin.show');
         Route::get('/export/{id}', 'DisiplinController@export')->name('disiplin.export');
+        Route::get('/sanksi/{id}', 'DisiplinController@sanksi')->name('disiplin.sanksi');
+        Route::get('/create/{id}', 'DisiplinController@create')->name('disiplin.create');
     });
 });
