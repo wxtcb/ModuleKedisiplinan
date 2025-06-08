@@ -23,12 +23,14 @@ Route::prefix('kedisiplinan')->group(function () {
         Route::post('/store', 'AlphaController@store')->name('alpha.store');
         Route::post('/alpha/hitung-tidak-hadir', 'AlphaController@hitungTidakHadir')->name('alpha.hitung_tidak_hadir');
     });
-
+    
     Route::prefix('disiplin')->group(function () {
         Route::get('/', 'DisiplinController@index')->name('disiplin.index');
         Route::get('/show/{id}', 'DisiplinController@show')->name('disiplin.show');
         Route::get('/export/{id}', 'DisiplinController@export')->name('disiplin.export');
         Route::get('/sanksi/{id}', 'DisiplinController@sanksi')->name('disiplin.sanksi');
         Route::get('/create/{id}', 'DisiplinController@create')->name('disiplin.create');
+        Route::post('/store/', 'DisiplinController@store')->name('disiplin.store');
+        Route::post('/hitung-tidak-hadir', 'DisiplinController@hitungTidakHadir')->name('disiplin.hitung_tidak_hadir');
     });
 });
