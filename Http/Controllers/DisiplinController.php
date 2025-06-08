@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
 use Modules\Cuti\Entities\Cuti;
 use Modules\Kedisiplinan\Entities\Alpha;
+use Modules\Kedisiplinan\Entities\disiplin;
 use Modules\Kedisiplinan\Exports\DisiplinExport;
 use Modules\Pengaturan\Entities\Pegawai;
 use Modules\Setting\Entities\Libur;
@@ -186,9 +187,10 @@ class DisiplinController extends Controller
      * Show the form for creating a new resource.
      * @return Renderable
      */
-    public function create()
+    public function create($id)
     {
-        return view('kedisiplinan::create');
+        $pegawai = Pegawai::findOrFail($id);
+        return view('kedisiplinan::disiplin.create', compact('pegawai'));
     }
 
     /**
@@ -532,5 +534,12 @@ class DisiplinController extends Controller
             $absensiTidakLengkap,
             $bulanTerburuk
         ), $filename);
+    }
+
+    public function sanksi($id)
+    {
+        $pegawai = Pegawai::findOrFail($id);
+        $disiplin = Disiplin::where('pegawai_id', $pegawai->id)->get();
+        return view('kedisiplinan::disiplin.sanksi', compact('pegawai', 'disiplin'));
     }
 }
