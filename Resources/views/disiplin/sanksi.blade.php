@@ -44,7 +44,7 @@
                                 <td>{{ \Carbon\Carbon::parse($item->tanggal_pemeriksaan)->format('d M Y') }}</td>
                                 <td>
                                     @if ($item->BAP)
-                                        <a href="#" target="_blank" class="btn btn-sm btn-info">Lihat</a>
+                                        <a href="{{ asset('storage/' . $item->BAP) }}" target="_blank" class="btn btn-sm btn-info">Lihat</a>
                                     @else
                                         <span class="text-muted">Tidak Ada</span>
                                     @endif

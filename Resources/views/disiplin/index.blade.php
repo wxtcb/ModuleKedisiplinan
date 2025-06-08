@@ -56,7 +56,7 @@
                                         
                                     </td>
                                     <td class="text-center"><a href="{{route('disiplin.sanksi', ['id' => $data['id']])}}">
-                                        -
+                                        {{$data['jumlah_sanksi']}}
                                     </a>
                                     </td>
                                 </tr>
