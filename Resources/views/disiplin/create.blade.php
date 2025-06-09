@@ -111,28 +111,13 @@
             allowInput: true,
         });
 
-        function tentukanSanksi(jumlah) {
-            if (jumlah === 3) {
-                return 'Teguran Lisan';
-            } else if (jumlah >= 4 && jumlah <= 6) {
-                return 'Teguran Tertulis';
-            } else if (jumlah >= 7 && jumlah <= 10) {
-                return 'Pernyataan Tidak Puas Tertulis';
-            } else if (jumlah >= 11 && jumlah <= 13) {
-                return 'Potongan Tunjangan 25% Selama 6 Bulan';
-            } else if (jumlah >= 14 && jumlah <= 16) {
-                return 'Potongan Tunjangan 25% Selama 9 Bulan';
-            } else if (jumlah >= 17 && jumlah <= 20) {
-                return 'Potongan Tunjangan 25% Selama 12 Bulan';
-            } else if (jumlah >= 21 && jumlah <= 24) {
-                return 'Penurunan Jabatan Setingkat Lebih Rendah Selama 12 Bulan';
-            } else if (jumlah >= 25 && jumlah <= 27) {
-                return 'Pembebasan Jabatan Menjadi Jabatan Pelaksana Selama 12 Bulan';
-            } else if (jumlah >= 28) {
-                return 'Pemberhentian Dengan Hormat Tidak Atas Permintaan Sendiri Tanpa Alasan';
+        function tentukanSanksiKurangJamBerturut(hasConsecutive10) {
+            if (hasConsecutive10) {
+                return 'Diberhentikan pembayaran gaji bulan selanjutnya';
             }
-            return '';
+            return '-';
         }
+
 
         document.getElementById('bulan_range').addEventListener('change', function() {
             const range = this.value;
@@ -146,7 +131,7 @@
             }
 
             if (start && end) {
-                fetch('{{ route('disiplin.hitung_tidak_hadir') }}', {
+                fetch('{{ route('disiplin.hitung_jam_kerja') }}', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
@@ -160,12 +145,39 @@
                     })
                     .then(res => res.json())
                     .then(data => {
-                        const jumlah = data.jumlah;
-                        document.getElementById('pelanggaran').value = `${jumlah} hari tidak hadir`;
+                        const pelanggaranInput = document.getElementById('pelanggaran');
+                        const rekomendasiInput = document.querySelector('input[name="rekomendasi_sanksi"]');
 
-                        const rekomendasi = tentukanSanksi(jumlah);
-                        document.querySelector('input[name="rekomendasi_sanksi"]').value = rekomendasi;
+                        if (data.has_consecutive_10) {
+                            pelanggaranInput.value = `Terindikasi kurang jam kerja 10 hari berturut-turut`;
+
+                            const sanksi = tentukanSanksiKurangJamBerturut(true);
+                            rekomendasiInput.value = sanksi;
+
+                            // Tampilkan tanggal-tanggal
+                            const dateContainer = document.getElementById('consecutive-dates-container');
+                            const dateList = document.getElementById('consecutive-dates-list');
+
+                            dateList.innerHTML = '';
+                            data.consecutive_dates.forEach(tanggal => {
+                                const item = document.createElement('li');
+                                item.className = 'list-group-item';
+                                item.textContent = tanggal;
+                                dateList.appendChild(item);
+                            });
+
+                            dateContainer.style.display = 'block';
+
+                        } else {
+                            pelanggaranInput.value =
+                                `Tidak ada indikasi 10 hari berturut-turut kurang jam kerja`;
+                            rekomendasiInput.value = tentukanSanksiKurangJamBerturut(false);
+
+                            document.getElementById('consecutive-dates-container').style.display = 'none';
+                        }
                     })
+
+
                     .catch(err => {
                         console.error('Gagal menghitung tidak hadir:', err);
                     });
