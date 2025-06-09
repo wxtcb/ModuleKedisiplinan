@@ -31,6 +31,6 @@ Route::prefix('kedisiplinan')->group(function () {
         Route::get('/sanksi/{id}', 'DisiplinController@sanksi')->name('disiplin.sanksi');
         Route::get('/create/{id}', 'DisiplinController@create')->name('disiplin.create');
         Route::post('/store/', 'DisiplinController@store')->name('disiplin.store');
-        Route::post('/hitung-tidak-hadir', 'DisiplinController@hitungTidakHadir')->name('disiplin.hitung_tidak_hadir');
+        Route::post('/hitung-tidak-hadir', 'DisiplinController@hitungKurangJamBerturut')->name('disiplin.hitung_jam_kerja');
     });
 });

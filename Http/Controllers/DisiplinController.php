@@ -212,7 +212,7 @@ class DisiplinController extends Controller
             'tanggal_pemeriksaan' => 'required|date',
             'BAP' => 'required|file|mimes:pdf,doc,docx|max:2048',
         ]);
-        
+
         // proses simpan dokumen
         if ($request->hasFile('BAP')) {
             $file = $request->file('BAP');
@@ -577,7 +577,7 @@ class DisiplinController extends Controller
         return view('kedisiplinan::disiplin.sanksi', compact('pegawai', 'disiplin'));
     }
 
-    public function hitungTidakHadir(Request $request)
+    public function hitungKurangJamBerturut(Request $request)
     {
         $request->validate([
             'pegawai_id' => 'required|integer|exists:pegawais,id',
@@ -586,6 +586,7 @@ class DisiplinController extends Controller
 
         $pegawai = Pegawai::findOrFail($request->pegawai_id);
 
+        // Parse date range
         $range = explode(' to ', $request->bulan_range);
         if (count($range) === 2) {
             $start = \Carbon\Carbon::parse($range[0])->startOfMonth();
@@ -597,13 +598,24 @@ class DisiplinController extends Controller
         $today = now()->toDateString();
         $bulanSekarang = now()->month;
 
-        // Hari libur nasional
+        // Get roles to determine working hours requirement
+        $roles = DB::table('model_has_roles')
+            ->join('roles', 'model_has_roles.role_id', '=', 'roles.id')
+            ->join('users', 'model_has_roles.model_id', '=', 'users.id')
+            ->where('users.username', $pegawai->username)
+            ->pluck('roles.name')
+            ->toArray();
+
+        $isDosen = in_array('dosen', $roles);
+        $batasMinimalJam = $isDosen ? 4 : 8;
+
+        // Get holidays
         $tanggalLibur = Libur::whereBetween('tanggal', [$start, $end])
             ->pluck('tanggal')
             ->map(fn($d) => \Carbon\Carbon::parse($d)->format('Y-m-d'))
             ->toArray();
 
-        // Hari kerja (senin–jumat), tanpa libur & hari ke depan
+        // Get working days (excluding weekends, holidays, and future dates)
         $hariKerja = collect();
         $periode = clone $start;
 
@@ -618,22 +630,16 @@ class DisiplinController extends Controller
             ) {
                 $hariKerja->push($tanggal);
             }
-
             $periode->addDay();
         }
 
-        // Kehadiran
-        $hadir = Alpha::where('user_id', $pegawai->id)
+        // Get attendance data
+        $kehadiran = Alpha::where('user_id', $pegawai->id)
             ->whereBetween('checktime', [$start, $end])
             ->get()
-            ->pluck('checktime')
-            ->map(fn($d) => \Carbon\Carbon::parse($d)->format('Y-m-d'))
-            ->unique()
-            ->toArray();
+            ->groupBy(fn($item) => $pegawai->id . '|' . \Carbon\Carbon::parse($item->checktime)->format('Y-m-d'));
 
-        // Izin Terlambat & LupaAbsen per tanggal
-        $izin = [];
-
+        // Get approved permissions
         $terlambat = Terlambat::where('pegawai_id', $pegawai->id)
             ->where('status', 'Disetujui')
             ->whereBetween('tanggal', [$start, $end])
@@ -650,7 +656,7 @@ class DisiplinController extends Controller
 
         $izin = array_unique(array_merge($terlambat, $lupaAbsen));
 
-        // Cuti
+        // Get leave data
         $cuti = Cuti::where('pegawai_id', $pegawai->id)
             ->where('status', 'Selesai')
             ->where(function ($q) use ($start, $end) {
@@ -669,7 +675,7 @@ class DisiplinController extends Controller
             }
         }
 
-        // Dinas Luar (DL)
+        // Get business trip data
         $suratTugas = SuratTugas::with('detail', 'anggota')
             ->whereHas('detail', fn($q) => $q->whereBetween('tanggal_mulai', [$start, $end])
                 ->orWhereBetween('tanggal_selesai', [$start, $end]))
@@ -693,14 +699,60 @@ class DisiplinController extends Controller
             }
         }
 
-        // Gabungkan semua izin
+        // Combine all permissions
         $izinAll = array_unique(array_merge($izin, $cutiTanggal, $dl));
 
-        // Hitung tidak hadir
-        $tidakHadir = $hariKerja->filter(function ($tgl) use ($hadir, $izinAll) {
-            return !in_array($tgl, $hadir) && !in_array($tgl, $izinAll);
-        })->count();
+        // Check for consecutive days with insufficient working hours
+        $consecutiveCount = 0;
+        $maxConsecutive = 0;
+        $consecutiveDates = [];
+        $currentStreak = [];
 
-        return response()->json(['jumlah' => $tidakHadir]);
+        foreach ($hariKerja as $tanggal) {
+            $key = $pegawai->id . '|' . $tanggal;
+            $absensi = $kehadiran[$key] ?? collect();
+
+            if (in_array($tanggal, $izinAll)) {
+                // Reset if there's permission
+                $consecutiveCount = 0;
+                $currentStreak = [];
+                continue;
+            }
+
+            // Calculate working hours
+            $sorted = $absensi->sortBy('checktime')->pluck('checktime')->map(fn($ct) => \Carbon\Carbon::parse($ct));
+            $jumlahAbsen = $sorted->count();
+            $jamMasuk = $sorted->first();
+            $jamPulang = $sorted->last();
+            $durasiKerja = $jumlahAbsen >= 2 ? $jamMasuk->diffInMinutes($jamPulang) / 60 : 0;
+
+            if ($durasiKerja < $batasMinimalJam) {
+                $consecutiveCount++;
+                $currentStreak[] = $tanggal;
+
+                if ($consecutiveCount > $maxConsecutive) {
+                    $maxConsecutive = $consecutiveCount;
+                    $consecutiveDates = $currentStreak;
+                }
+            } else {
+                // Reset if working hours are sufficient
+                $consecutiveCount = 0;
+                $currentStreak = [];
+            }
+        }
+
+        $hasConsecutive10 = $maxConsecutive >= 10;
+
+        return response()->json([
+            'has_consecutive_10' => $hasConsecutive10,
+            'max_consecutive_days' => $maxConsecutive,
+            'consecutive_dates' => $hasConsecutive10 ? $consecutiveDates : [],
+            'details' => [
+                'pegawai' => $pegawai->nama,
+                'nip' => $pegawai->nip,
+                'required_hours' => $batasMinimalJam,
+                'period' => [$start->format('Y-m-d'), $end->format('Y-m-d')]
+            ]
+        ]);
     }
 }
