@@ -170,7 +170,7 @@
 
                         } else {
                             pelanggaranInput.value =
-                                `Tidak ada indikasi 10 hari berturut-turut kurang jam kerja`;
+                                `Penilaian Kinerja Maksimal Cukup`;
                             rekomendasiInput.value = tentukanSanksiKurangJamBerturut(false);
 
                             document.getElementById('consecutive-dates-container').style.display = 'none';

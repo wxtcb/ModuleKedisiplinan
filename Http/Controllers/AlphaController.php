@@ -34,17 +34,45 @@ class AlphaController extends Controller
         $tanggalHariIni = now()->toDateString();
         $roles = $user->getRoleNames()->toArray();
 
-        $pegawaiList = Pegawai::query();
+        $pegawaiQuery = Pegawai::query();
+
+        $isAtasan = false;
+        $pegawai = Pegawai::with('pejabat.timKerja.anggota', 'timKerjaKetua.anggota')
+            ->where('username', $user->username)
+            ->first();
 
         if (!in_array('admin', $roles) && !in_array('super', $roles)) {
             if (in_array('pegawai', $roles) || in_array('dosen', $roles)) {
-                $pegawaiList->where('username', $user->username);
+                // Pegawai/Dosen hanya bisa melihat data sendiri
+                $pegawaiQuery->where('username', $user->username);
+            } elseif ($pegawai) {
+                // Cek apakah user punya bawahan
+                $pegawaiIds = collect([$pegawai->id]);
+
+                if ($pegawai->pejabat && $pegawai->pejabat->timKerja) {
+                    foreach ($pegawai->pejabat->timKerja as $tim) {
+                        foreach ($tim->anggota as $anggota) {
+                            $pegawaiIds->push($anggota->id);
+                        }
+                    }
+                }
+
+                if ($pegawai->timKerjaKetua) {
+                    foreach ($pegawai->timKerjaKetua as $tim) {
+                        foreach ($tim->anggota as $anggota) {
+                            $pegawaiIds->push($anggota->id);
+                        }
+                    }
+                }
+
+                $isAtasan = $pegawaiIds->count() > 1;
+                $pegawaiQuery->whereIn('id', $pegawaiIds->unique());
             } else {
-                $pegawaiList->whereNull('id');
+                $pegawaiQuery->whereNull('id');
             }
         }
 
-        $pegawaiList = $pegawaiList->select('id', 'nama', 'nip', 'username')->get();
+        $pegawaiList = $pegawaiQuery->select('id', 'nama', 'nip', 'username')->get();
         $pegawaiIDs = $pegawaiList->pluck('id')->toArray();
 
         $kehadiran = Alpha::query()
