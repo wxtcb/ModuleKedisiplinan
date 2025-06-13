@@ -41,7 +41,7 @@ class DisiplinController extends Controller
             ->where('username', $user->username)
             ->first();
 
-        if (!in_array('admin', $roles) && !in_array('super', $roles)) {
+        if (!in_array('admin', $roles) && !in_array('super', $roles) && !in_array('direktur', $roles)) {
             if (in_array('pegawai', $roles) || in_array('dosen', $roles)) {
                 // Pegawai/Dosen hanya lihat dirinya sendiri
                 $pegawaiQuery->where('username', $user->username);
@@ -78,7 +78,7 @@ class DisiplinController extends Controller
 
         $kehadiran = Alpha::query()
             ->whereYear('checktime', $year)
-            ->when(!in_array('admin', $roles), function ($query) use ($user, $roles) {
+            ->when(!in_array('admin', $roles) && !in_array('direktur', $roles), function ($query) use ($user, $roles) {
                 if (in_array('pegawai', $roles) || in_array('dosen', $roles)) {
                     return $query->where('user_id', $user->id);
                 }
@@ -157,7 +157,7 @@ class DisiplinController extends Controller
                 ->toArray();
 
             $isDosen = in_array('dosen', $roles);
-            $batasMinimalJam = $isDosen ? 4 : 8;
+            $batasMinimalJam = $isDosen ? 5 : 8;
 
             foreach ($hariKerja as $tanggal) {
                 $bulan = \Carbon\Carbon::parse($tanggal)->month;
