@@ -41,7 +41,7 @@ class AlphaController extends Controller
             ->where('username', $user->username)
             ->first();
 
-        if (!in_array('admin', $roles) && !in_array('super', $roles)) {
+        if (!in_array('admin', $roles) && !in_array('super', $roles) && !in_array('direktur', $roles)) {
             if (in_array('pegawai', $roles) || in_array('dosen', $roles)) {
                 // Pegawai/Dosen hanya bisa melihat data sendiri
                 $pegawaiQuery->where('username', $user->username);
@@ -77,7 +77,7 @@ class AlphaController extends Controller
 
         $kehadiran = Alpha::query()
             ->whereYear('checktime', $year)
-            ->when(!in_array('admin', $roles), function ($query) use ($user, $roles) {
+            ->when(!in_array('admin', $roles) && !in_array('direktur', $roles), function ($query) use ($user, $roles) {
                 if (in_array('pegawai', $roles) || in_array('dosen', $roles)) {
                     return $query->where('user_id', $user->id);
                 }
