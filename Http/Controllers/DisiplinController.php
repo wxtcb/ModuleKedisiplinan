@@ -14,7 +14,8 @@ use Modules\Kedisiplinan\Entities\Alpha;
 use Modules\Kedisiplinan\Entities\disiplin;
 use Modules\Kedisiplinan\Exports\DisiplinExport;
 use Modules\Pengaturan\Entities\Pegawai;
-use Modules\Setting\Entities\Libur;
+use Modules\RekapKehadiran\Entities\Jam;
+use Modules\RekapKehadiran\Entities\Libur;
 use Modules\SuratIjin\Entities\LupaAbsen;
 use Modules\SuratIjin\Entities\Terlambat;
 use Modules\SuratTugas\Entities\SuratTugas;
@@ -160,6 +161,16 @@ class DisiplinController extends Controller
             $batasMinimalJam = $isDosen ? 5 : 8;
 
             foreach ($hariKerja as $tanggal) {
+                // Cek apakah ada jam kerja istimewa pada tanggal ini
+                $jamKhusus = Jam::whereDate('tanggal_mulai', '<=', $tanggal)
+                    ->whereDate('tanggal_selesai', '>=', $tanggal)
+                    ->first();
+
+                if ($jamKhusus) {
+                    // Ganti batas minimal jam kerja berdasarkan jam kerja istimewa
+                    $batasMinimalJam = (int) $jamKhusus->jam_kerja;
+                }
+
                 $bulan = \Carbon\Carbon::parse($tanggal)->month;
 
                 if ($bulan === $bulanSekarang && $tanggal > $tanggalHariIni) continue;
